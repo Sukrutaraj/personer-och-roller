@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Memory</title>
+
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  font-family:system-ui,sans-serif;
+  transition:background-color 0.3s;
+}
+
+/* ===== BAKGRUND ===== */
+body.setup{ background:#f2efe9; }
+body.blueTurn{ background:#7fb3c8; }     /* petrol */
+body.orangeTurn{ background:#e6b566; }   /* ockra */
+
+/* ===== TOPP ===== */
+#controls{
+  padding:10px;
+  text-align:center;
+  font-size:22px;
+  font-weight:bold;
+}
+
+#controls button{
+  font-size:26px;
+  margin-left:10px;
+}
+
+/* ===== SPELYTA ===== */
+#board{
+  position:relative;
+  width:100vw;
+  height:calc(100vh - 120px);
+  overflow:hidden;
+  touch-action:none;
+}
+
+/* ===== KORT ===== */
+.card{
+  position:absolute;
+  width:120px;
+  height:120px;
+  background:#bbb;
+  border-radius:12px;
+  border:2px solid #333;   /* neutral start-ram */
+  user-select:none;
+  touch-action:none;
+}
+
+.card img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  border-radius:8px;
+  display:none;
+}
+
+.card.faceup img{ display:block; }
+.card.faceup{ background:#fff; }
+
+/* ===== VINNAR-RAMAR ===== */
+.card.blue{
+  border-color:#2f6f86;   /* mörk petrol */
+  border-width:6px;
+}
+
+.card.orange{
+  border-color:#b8742a;   /* mörk ockra */
+  border-width:6px;
+}
+
+/* ===== SETUP ===== */
+#setup{
+  text-align:center;
+  padding:20px;
+}
+
+.hidden{ display:none; }
+</style>
+</head>
+
+<body class="setup">
+
+<!-- ===== START ===== -->
+<div id="setup">
+  <h2>Memory</h2>
+
+  <p>Hur många bilder?</p>
+  <select id="imageCount">
+    <option value="2">2 bilder (4 kort)</option>
+    <option value="4">4 bilder (8 kort)</option>
+    <option value="8">8 bilder (16 kort)</option>
+    <option value="12">12 bilder (24 kort)</option>
+  </select>
+
+  <br><br>
+  <button onclick="startGame()">▶ Spela</button>
+</div>
+
+<!-- ===== KONTROLLER ===== -->
+<div id="controls" class="hidden">
+  Tur: <span id="turnText">Blå</span>
+  <button onclick="playAgain()" title="Spela igen">🔁</button>
+  <button onclick="goHome()" title="Hem">🏠</button>
+</div>
+
+<div id="board"></div>
+
+<script>
+/* ===== BLOCKERA SAMSUNG FLIP MENY ===== */
+document.addEventListener("contextmenu", e => e.preventDefault());
+
+const board = document.getElementById("board");
+const turnText = document.getElementById("turnText");
+const setupDiv = document.getElementById("setup");
+const controls = document.getElementById("controls");
+
+let currentTeam = "blue";
+let openCards = [];
+let holdTimer = null;
+let lastCount = 0;
+
+const MOVE_THRESHOLD = 10;
+
+/* ===== START SPEL ===== */
+function startGame(){
+  const count = parseInt(document.getElementById("imageCount").value);
+  lastCount = count;
+
+  board.innerHTML = "";
+  openCards = [];
+  currentTeam = "blue";
+
+  setupDiv.classList.add("hidden");
+  controls.classList.remove("hidden");
+  document.body.className = "blueTurn";
+  turnText.textContent = "Blå";
+
+const images = [];
+let i = 1;
+
+while(images.length < count * 2){
+  images.push(`img${i}.jpg`, `img${i}.jpg`);
+  i++;
+
+  // börja om från img1 om vi nått slutet
+  if(i > 50){ i = 1; }  
+}
+
+
+  shuffle(images);
+  createCards(images);
+}
+
+/* ===== SPELA IGEN ===== */
+function playAgain(){
+  if(lastCount === 0) return;
+
+  board.innerHTML = "";
+  openCards = [];
+  currentTeam = "blue";
+  document.body.className = "blueTurn";
+  turnText.textContent = "Blå";
+
+  const images = [];
+  for(let i=1;i<=lastCount;i++){
+    images.push(`img${i}.jpg`, `img${i}.jpg`);
+  }
+
+  shuffle(images);
+  createCards(images);
+}
+
+/* ===== HEM ===== */
+function goHome(){
+  board.innerHTML = "";
+  openCards = [];
+  lastCount = 0;
+  document.body.className = "setup";
+  setupDiv.classList.remove("hidden");
+  controls.classList.add("hidden");
+}
+
+/* ===== SKAPA KORT ===== */
+function createCards(images){
+  images.forEach(src=>{
+    const card = document.createElement("div");
+    card.className = "card";
+    card.dataset.image = src;
+    card.dataset.paired = "false";
+
+    const img = document.createElement("img");
+    img.src = src;
+    card.appendChild(img);
+
+    card.style.left = Math.random()*(board.clientWidth-140)+"px";
+    card.style.top  = Math.random()*(board.clientHeight-140)+"px";
+
+    makeHold(card);
+    makeDrag(card);
+
+    board.appendChild(card);
+  });
+}
+
+/* ===== HOLD FÖR ATT VÄNDA ===== */
+function makeHold(card){
+  let startX,startY,moved=false;
+
+  card.addEventListener("pointerdown",e=>{
+    if(card.dataset.paired==="true") return;
+    startX=e.clientX;
+    startY=e.clientY;
+    moved=false;
+
+    holdTimer=setTimeout(()=>{
+      if(!moved){
+        card.classList.add("faceup");
+        openCards.push(card);
+        if(openCards.length===2) checkPair();
+      }
+    },700);
+  });
+
+  card.addEventListener("pointermove",e=>{
+    if(Math.hypot(e.clientX-startX,e.clientY-startY)>MOVE_THRESHOLD){
+      moved=true;
+      clearTimeout(holdTimer);
+    }
+  });
+
+  card.addEventListener("pointerup",()=>clearTimeout(holdTimer));
+}
+
+/* ===== PARLOGIK ===== */
+function checkPair(){
+  const [a,b]=openCards;
+
+  if(a.dataset.image===b.dataset.image){
+    a.dataset.paired=b.dataset.paired="true";
+    a.classList.add(currentTeam);
+    b.classList.add(currentTeam);
+  }else{
+    setTimeout(()=>{
+      a.classList.remove("faceup");
+      b.classList.remove("faceup");
+    },1500);
+    switchTurn();
+  }
+  openCards=[];
+}
+
+/* ===== TUR ===== */
+function switchTurn(){
+  currentTeam=currentTeam==="blue"?"orange":"blue";
+  document.body.className=currentTeam+"Turn";
+  turnText.textContent=currentTeam==="blue"?"Blå":"Orange";
+}
+
+/* ===== DRAG (MUS + TOUCH) ===== */
+function makeDrag(el){
+  let ox,oy,activePointer=null;
+
+  el.addEventListener("pointerdown",e=>{
+    ox=e.clientX-el.offsetLeft;
+    oy=e.clientY-el.offsetTop;
+    activePointer=e.pointerId;
+    el.setPointerCapture(activePointer);
+  });
+
+  el.addEventListener("pointermove",e=>{
+    if(e.pointerId!==activePointer) return;
+    el.style.left=(e.clientX-ox)+"px";
+    el.style.top=(e.clientY-oy)+"px";
+  });
+
+  el.addEventListener("pointerup",()=>{
+    if(activePointer!==null){
+      el.releasePointerCapture(activePointer);
+      activePointer=null;
+    }
+  });
+
+  el.addEventListener("pointercancel",()=>{
+    if(activePointer!==null){
+      el.releasePointerCapture(activePointer);
+      activePointer=null;
+    }
+  });
+}
+
+/* ===== SHUFFLE ===== */
+function shuffle(a){
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+}
+</script>
+
+</body>
+</html>
